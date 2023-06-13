@@ -43,7 +43,22 @@ static int close(struct inode *i, struct file *f)
 
 static ssize_t read(struct file *f, char __user *buf, size_t len, loff_t *off)
 {
+    ssize_t bytes;
+    size_t gpio;
+    char value;
+
     printk(KERN_INFO "SdeC_drv4: read()\n");
+    // Get gpio pin number
+    gpio = iminor(f->f_path.dentry->d_inode);
+
+    for (bytes = 0; bytes < len; ++bytes)
+    {
+        value = '0' + gpio_get_value(gpio);
+        if (put_user(value, buf + bytes))
+        {
+            break;
+        }
+    }
 
     return 0;
 }
