@@ -11,11 +11,11 @@
 
 #define DRIVER_NAME "GPIODriver"
 #define DRIVER_CLASS "GPIODriverClass"
-#define DEVICE_COUNT 2
+#define PIN_COUNT 2
 
-static dev_t deviceNumber;  // Global variable for the first device number
-static struct cdev c_dev;   // Global variable for the character device structure
-static struct class *class; // Global variable for the device class
+static dev_t deviceFirstNumber;      // Global variable for the first device number
+static struct cdev c_dev[PIN_COUNT]; // Global variable for the character devices structure
+static struct class *class;          // Global variable for the device class
 
 static int open(struct inode *i, struct file *f)
 {
@@ -27,19 +27,6 @@ static int close(struct inode *i, struct file *f)
     printk(KERN_INFO "GPIODriver close()\n");
     return 0;
 }
-
-// ssize_t resulta ser una palabra con signo.
-// Por lo tanto, puede ocurrir que devuelva un número negativo. Esto sería un error.
-// Pero un valor de retorno no negativo tiene un significado adicional.
-// Para my_read sería el número de bytes leídos
-
-// Cuando hago un $ cat /dev/SdeC_drv3, se convoca a my_read.!!
-// my_read lee "len" bytes, los guarda en "buf" y devuelve la cantidad leida, que puede
-// ser menor, pero nunca mayor que len.
-
-// En SdeC_drv3, devuelve cero. Dado que es un archivo, esto significa no hay mas datos ó EOF.
-// Lo que tendría que ocurrir es que el device escriba sobre buf para que el usuario pueda
-// obtener una lectura no nula.
 
 static ssize_t read(struct file *f, char __user *buf, size_t len, loff_t *off)
 {
@@ -63,9 +50,6 @@ static ssize_t read(struct file *f, char __user *buf, size_t len, loff_t *off)
     return 0;
 }
 
-// my_write escribe "len" bytes en "buf" y devuelve la cantidad escrita, que debe ser igual "len".
-// Cuando hago un $ echo "bla bla bla..." > /dev/SdeC_drv3, se convoca a my_write.!!
-
 static ssize_t write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 {
     printk(KERN_INFO "SdeC_drv4: write()\n");
@@ -83,12 +67,12 @@ static struct file_operations pugs_fops =
 
 static int __init initDriver(void)
 {
-    struct device *dev_ret;
+    int ret = 0;
 
     printk(KERN_INFO "GPIODriver: Registered succesfully..!!\n");
 
-    // Create 2 device number
-    if (alloc_chrdev_region(&deviceNumber, 0, DEVICE_COUNT, DRIVER_NAME) < 0)
+    // Create device number
+    if (alloc_chrdev_region(&deviceFirstNumber, 0, PIN_COUNT, DRIVER_NAME) < 0)
     {
         printk("Device number could not be allocated\n");
         return -1;
@@ -98,81 +82,68 @@ static int __init initDriver(void)
     if (IS_ERR(class = class_create(THIS_MODULE, DRIVER_CLASS)))
     {
         printk("Device class can not be created\n");
-        unregister_chrdev_region(deviceNumber, DEVICE_COUNT);
+        unregister_chrdev_region(deviceFirstNumber, PIN_COUNT);
         return PTR_ERR(class);
     }
 
-    // Create device file
-    if (IS_ERR(dev_ret = device_create(class, NULL, deviceNumber, NULL, DRIVER_NAME)))
+    // Create for each pin
+    for (size_t i = 0; i < PIN_COUNT; i++)
     {
-        printk("Registering of device to kernel failed\n");
-        class_destroy(class);
-        unregister_chrdev_region(deviceNumber, DEVICE_COUNT);
-        return PTR_ERR(dev_ret);
-    }
+        if (gpio_request(i, NULL))
+        {
+            printk("Can not allocate GPIO %ld\n", i);
 
-    // Init device file
-    cdev_init(&c_dev, &pugs_fops);
+            // Free previous GPIO
+            for (size_t j = i - 1; i < 0; i--)
+            {
+                gpio_free(j);
+            }
 
-    // Register device to kernel
-    if (cdev_add(&c_dev, deviceNumber, DEVICE_COUNT) < 0)
-    {
-        device_destroy(class, deviceNumber);
-        class_destroy(class);
-        unregister_chrdev_region(deviceNumber, DEVICE_COUNT);
-        return -1;
-    }
+            return -1;
+        }
 
-    /* GPIO 1 init */
-    if (gpio_request(0, "rpi-gpio-0"))
-    {
-        printk("Can not allocate GPIO 0\n");
+        if (gpio_direction_input(i))
+        {
+            printk("Can not set GPIO %ld to input\n", i);
 
-        cdev_del(&c_dev);
-        device_destroy(class, deviceNumber);
-        class_destroy(class);
-        unregister_chrdev_region(deviceNumber, DEVICE_COUNT);
-        return -1;
-    }
+            for (size_t j = 0; j < PIN_COUNT; j++)
+            {
+                gpio_free(j);
+            }
 
-    /* Set GPIO 0 input */
-    if (gpio_direction_input(0))
-    {
-        printk("Can not set GPIO 0 to input!\n");
+            return -1;
+        }
 
-        gpio_free(0);
-        cdev_del(&c_dev);
-        device_destroy(class, deviceNumber);
-        class_destroy(class);
-        unregister_chrdev_region(deviceNumber, DEVICE_COUNT);
-        return -1;
-    }
+        // Register device
+        cdev_init(&c_dev[i], &pugs_fops);
 
-    /* GPIO 1 init */
-    if (gpio_request(1, "rpi-gpio-1"))
-    {
-        printk("Can not allocate GPIO 1\n");
+        if ((ret = cdev_add(&c_dev[i], (deviceFirstNumber + i), 1)))
+        {
+            printk("Error %d adding cdev\n", ret);
 
-        gpio_free(0);
-        cdev_del(&c_dev);
-        device_destroy(class, deviceNumber);
-        class_destroy(class);
-        unregister_chrdev_region(deviceNumber, DEVICE_COUNT);
-        return -1;
-    }
+            // Destroy previous devices
+            for (size_t j = i - 1; i < 0; i--)
+            {
+                device_destroy(class, MKDEV(MAJOR(deviceFirstNumber),
+                                            MINOR(deviceFirstNumber) + j));
+            }
+            class_destroy(class);
+            unregister_chrdev_region(deviceFirstNumber, PIN_COUNT);
+            return ret;
+        }
 
-    /* Set GPIO 1 input */
-    if (gpio_direction_input(1))
-    {
-        printk("Can not set GPIO 1 to input!\n");
-
-        gpio_free(0);
-        gpio_free(1);
-        cdev_del(&c_dev);
-        device_destroy(class, deviceNumber);
-        class_destroy(class);
-        unregister_chrdev_region(deviceNumber, DEVICE_COUNT);
-        return -1;
+        // Create device
+        if (device_create(class,
+                          NULL,
+                          MKDEV(MAJOR(deviceFirstNumber), MINOR(deviceFirstNumber) + i),
+                          NULL,
+                          "GPIO%ld",
+                          i) == NULL)
+        {
+            class_destroy(class);
+            unregister_chrdev_region(deviceFirstNumber, PIN_COUNT);
+            return -1;
+        }
     }
 
     return 0;
@@ -180,12 +151,17 @@ static int __init initDriver(void)
 
 static void __exit exitDriver(void)
 {
-    gpio_free(0);
-    gpio_free(1);
-    cdev_del(&c_dev);
-    device_destroy(class, deviceNumber);
+    for (size_t i = 0; i < PIN_COUNT; i++)
+    {
+        gpio_direction_output(i, 0);
+        cdev_del(&c_dev[i]);
+        device_destroy(class, MKDEV(MAJOR(deviceFirstNumber), MINOR(deviceFirstNumber) + i));
+        gpio_free(i);
+    }
+
     class_destroy(class);
-    unregister_chrdev_region(deviceNumber, DEVICE_COUNT);
+    unregister_chrdev_region(deviceFirstNumber, PIN_COUNT);
+
     printk(KERN_INFO "GPIODriver: dice Adios mundo cruel..!!\n");
 }
 
