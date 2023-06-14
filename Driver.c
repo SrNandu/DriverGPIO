@@ -11,7 +11,7 @@
 
 #define DRIVER_NAME "GPIODriver"
 #define DRIVER_CLASS "GPIODriverClass"
-#define PIN_COUNT 2
+#define PIN_COUNT 28
 
 static dev_t deviceFirstNumber;      // Global variable for the first device number
 static struct cdev c_dev[PIN_COUNT]; // Global variable for the character devices structure
@@ -129,6 +129,14 @@ static int __init initDriver(void)
                           "GPIO%zu",
                           i) == NULL)
         {
+            printk(KERN_WARNING "GPIODriver: Error %d creating device\n", ret);
+
+            // Destroy previous devices
+            for (size_t j = i - 1; i < 0; i--)
+            {
+                device_destroy(class, MKDEV(MAJOR(deviceFirstNumber),
+                                            MINOR(deviceFirstNumber) + j));
+            }
             class_destroy(class);
             unregister_chrdev_region(deviceFirstNumber, PIN_COUNT);
             return -1;
