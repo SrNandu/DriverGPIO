@@ -34,13 +34,14 @@ static ssize_t read(struct file *f, char __user *buf, size_t len, loff_t *off)
     size_t gpio;
     char value;
 
-    printk(KERN_INFO "SdeC_drv4: read()\n");
+    printk(KERN_INFO "GPIODriver: read()\n");
     // Get gpio pin number
     gpio = iminor(f->f_path.dentry->d_inode);
 
     for (bytes = 0; bytes < len; ++bytes)
     {
         value = '0' + gpio_get_value(gpio);
+        printk(KERN_INFO "GPIODriver: GPIO%zu value %d\n", gpio, value);
         if (put_user(value, buf + bytes))
         {
             break;
@@ -52,7 +53,7 @@ static ssize_t read(struct file *f, char __user *buf, size_t len, loff_t *off)
 
 static ssize_t write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 {
-    printk(KERN_INFO "SdeC_drv4: write()\n");
+    printk(KERN_INFO "GPIODriver: write()\n");
 
     return 0;
 }
@@ -74,14 +75,14 @@ static int __init initDriver(void)
     // Create device number
     if (alloc_chrdev_region(&deviceFirstNumber, 0, PIN_COUNT, DRIVER_NAME) < 0)
     {
-        printk("Device number could not be allocated\n");
+        printk(KERN_WARNING "GPIODriver: Device number could not be allocated\n");
         return -1;
     }
 
     // Create device class
     if (IS_ERR(class = class_create(THIS_MODULE, DRIVER_CLASS)))
     {
-        printk("Device class can not be created\n");
+        printk(KERN_WARNING "GPIODriver: Device class can not be created\n");
         unregister_chrdev_region(deviceFirstNumber, PIN_COUNT);
         return PTR_ERR(class);
     }
@@ -91,7 +92,7 @@ static int __init initDriver(void)
     {
         if (gpio_request(i, NULL))
         {
-            printk("Can not allocate GPIO %ld\n", i);
+            printk(KERN_WARNING "GPIODriver: Can not allocate GPIO %zu\n", i);
 
             // Free previous GPIO
             for (size_t j = i - 1; i < 0; i--)
@@ -104,7 +105,7 @@ static int __init initDriver(void)
 
         if (gpio_direction_input(i))
         {
-            printk("Can not set GPIO %ld to input\n", i);
+            printk("GPIODriver: Can not set GPIO %zu to input\n", i);
 
             for (size_t j = 0; j < PIN_COUNT; j++)
             {
@@ -119,7 +120,7 @@ static int __init initDriver(void)
 
         if ((ret = cdev_add(&c_dev[i], (deviceFirstNumber + i), 1)))
         {
-            printk("Error %d adding cdev\n", ret);
+            printk(KERN_WARNING "GPIODriver: Error %d adding cdev\n", ret);
 
             // Destroy previous devices
             for (size_t j = i - 1; i < 0; i--)
@@ -137,7 +138,7 @@ static int __init initDriver(void)
                           NULL,
                           MKDEV(MAJOR(deviceFirstNumber), MINOR(deviceFirstNumber) + i),
                           NULL,
-                          "GPIO%ld",
+                          "GPIO%zu",
                           i) == NULL)
         {
             class_destroy(class);

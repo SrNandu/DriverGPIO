@@ -1,7 +1,7 @@
 import time
 
-f0 = open("/dev/GPIODriver0", "r")
-f1 = open("/dev/GPIODriver1", "r")
+f0 = open("/dev/GPIO0", "r")
+f1 = open("/dev/GPIO1", "r")
 
 while(True):
     value0 = f0.read(1)
