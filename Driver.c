@@ -34,21 +34,21 @@ static ssize_t read(struct file *f, char __user *buf, size_t len, loff_t *off)
     size_t gpio;
     char value;
 
-    printk(KERN_INFO "GPIODriver: read()\n");
     // Get gpio pin number
     gpio = iminor(f->f_path.dentry->d_inode);
+
+    printk(KERN_INFO "GPIODriver: GPIO%zu read()\n", gpio);
 
     for (bytes = 0; bytes < len; ++bytes)
     {
         value = '0' + gpio_get_value(gpio);
-        printk(KERN_INFO "GPIODriver: GPIO%zu value %d\n", gpio, value);
         if (put_user(value, buf + bytes))
         {
             break;
         }
     }
 
-    return 0;
+    return bytes;
 }
 
 static ssize_t write(struct file *f, const char __user *buf, size_t len, loff_t *off)
@@ -90,24 +90,12 @@ static int __init initDriver(void)
     // Create for each pin
     for (size_t i = 0; i < PIN_COUNT; i++)
     {
-        if (gpio_request(i, NULL))
+        if (gpio_request_one(i, GPIOF_IN, NULL) < 0)
         {
             printk(KERN_WARNING "GPIODriver: Can not allocate GPIO %zu\n", i);
 
             // Free previous GPIO
             for (size_t j = i - 1; i < 0; i--)
-            {
-                gpio_free(j);
-            }
-
-            return -1;
-        }
-
-        if (gpio_direction_input(i))
-        {
-            printk("GPIODriver: Can not set GPIO %zu to input\n", i);
-
-            for (size_t j = 0; j < PIN_COUNT; j++)
             {
                 gpio_free(j);
             }
@@ -163,7 +151,7 @@ static void __exit exitDriver(void)
     class_destroy(class);
     unregister_chrdev_region(deviceFirstNumber, PIN_COUNT);
 
-    printk(KERN_INFO "GPIODriver: dice Adios mundo cruel..!!\n");
+    printk(KERN_INFO "GPIODriver: Unregistered..!!\n");
 }
 
 module_init(initDriver);
