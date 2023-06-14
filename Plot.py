@@ -1,13 +1,38 @@
 import time
+import os
+import asciichartpy as chart
+import array as arr
 
-f0 = open("/dev/GPIO17", "r")
-f1 = open("/dev/GPIO18", "r")
+clear = lambda: os.system('clear')
+count = 0
+
+def getValue(devName):
+    f = open(devName, "r")
+    value = ord(f.read(1)) - 48
+    f.close()
+
+    return value
+
+values0 = arr.array('i',[])
+values1 = arr.array('i',[])
 
 while(True):
-    value0 = f0.read(1)
-    value1 = f1.read(1)
+    value = getValue("/dev/GPIO17")
+    values0.append(value)
+    value = getValue("/dev/GPIO18")
+    values1.append(value)
 
-    print(value0)
-    print(value1)
+    count += 1
 
-    time.sleep(1)
+    clear()
+    print("GPIO17")
+    print(chart.plot(values0))
+    print("GPIO18")
+    print(chart.plot(values1))
+
+    if(count > 70):
+        del values0[:]
+        del values1[:]
+        count = 0
+
+    time.sleep(0.2)
